@@ -45,6 +45,37 @@ The original project uses a two-layer architecture — a TypeScript MCP server c
    }
    ```
 
+## Debug State & Pause Reasons
+
+The `x64dbg_debug` tool's `state` action reports **why** the debuggee is paused through a `reason` field (present only while paused). `reason` is one of:
+
+| `reason` | Meaning | Detail object |
+|---|---|---|
+| `breakpoint` | Paused at a registered software/hardware/memory breakpoint | `breakpoint`: `{ type, address, name, module, hit_count, log? }` |
+| `step` | Paused after a single step (step into/over/out) | — |
+| `exception` | Paused on an exception | `exception`: `{ code, name, address, first_chance }` |
+| `unknown` | Cause not positively identified — manual pause, a DLL/DebugString/loadlib event pause, or a breakpoint that did not pass conservative validation | — |
+
+When the reason carries extra context, a sub-object keyed by the `reason` value is included (`breakpoint` / `exception`). `step` and `unknown` have no detail object. In the breakpoint detail, `type` is the breakpoint kind (`software` / `hardware` / `memory` / `dll` / `exception`), and `log` (or `log_raw` if formatting failed) appears only when the breakpoint defines log text.
+
+```json
+{
+  "state": "paused",
+  "cip": "0x00007FFC09EBE1A0",
+  "module": "neteasemusic",
+  "reason": "breakpoint",
+  "breakpoint": {
+    "type": "software",
+    "address": "0x00007FFC09EBE1A0",
+    "name": "",
+    "module": "neteasemusic",
+    "hit_count": 1
+  }
+}
+```
+
+`reason` is attributed conservatively: it is reported as `breakpoint` only when a `CB_BREAKPOINT` fired, the breakpoint has no `commandText`, and CIP is unchanged since that callback. Pauses that cannot be positively attributed fall through to `unknown` rather than being mislabeled.
+
 ## Build Requirements
 
 - Visual Studio 2022+ with MSVC v145 toolset

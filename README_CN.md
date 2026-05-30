@@ -45,6 +45,37 @@
    }
    ```
 
+## 调试状态与暂停原因
+
+`x64dbg_debug` 工具的 `state` 动作通过 `reason` 字段报告被调试进程**为何**暂停（仅在暂停时出现）。`reason` 取值之一：
+
+| `reason` | 含义 | 细节对象 |
+|---|---|---|
+| `breakpoint` | 命中已注册的软件/硬件/内存断点 | `breakpoint`：`{ type, address, name, module, hit_count, log? }` |
+| `step` | 单步（步入/步过/步出）后暂停 | — |
+| `exception` | 因异常暂停 | `exception`：`{ code, name, address, first_chance }` |
+| `unknown` | 无法明确归因——手动暂停、DLL/DebugString/loadlib 事件暂停，或未通过保守校验的断点 | — |
+
+当原因带有附加上下文时，会包含一个以 `reason` 取值为键的子对象（`breakpoint` / `exception`）。`step` 和 `unknown` 没有细节对象。断点细节中的 `type` 表示断点类型（`software` / `hardware` / `memory` / `dll` / `exception`）；`log`（格式化失败时为 `log_raw`）仅在断点设置了日志文本时出现。
+
+```json
+{
+  "state": "paused",
+  "cip": "0x00007FFC09EBE1A0",
+  "module": "neteasemusic",
+  "reason": "breakpoint",
+  "breakpoint": {
+    "type": "software",
+    "address": "0x00007FFC09EBE1A0",
+    "name": "",
+    "module": "neteasemusic",
+    "hit_count": 1
+  }
+}
+```
+
+`reason` 采用保守归因：只有当 `CB_BREAKPOINT` 已触发、断点无 `commandText`、且自该回调以来 CIP 未变化时，才会报告为 `breakpoint`。无法明确归因的暂停会退为 `unknown`，而不是被错误标注。
+
 ## 构建要求
 
 - Visual Studio 2022+，MSVC v145 工具集

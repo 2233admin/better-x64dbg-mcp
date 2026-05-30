@@ -106,31 +106,26 @@ private:
     //   1. m_last_was_breakpoint: some CB_BREAKPOINT fired since the last clear.
     //
     //   2. Empty commandText: some commands (loadlib, pause, others) fire nested
-    //      CB_PAUSEDEBUG calls during commandText execution, and cip+cycles can
-    //      only prove "the original thread did not run past the BP", not "this
-    //      CB_PAUSEDEBUG is the BP's real pause rather than a command-triggered
-    //      nested one". Rejecting commandText BPs avoids misattributing those.
+    //      CB_PAUSEDEBUG calls during commandText execution. CIP equality cannot
+    //      prove "this CB_PAUSEDEBUG is the BP's real pause rather than a
+    //      command-triggered nested one", so reject commandText BPs outright.
     //
-    //   3. m_pending_cip == cip: a real CB_BREAKPOINT→CB_PAUSEDEBUG pair has no
-    //      execution between so CIP is unchanged; a skipped BP advances CIP past
-    //      the trigger via x64dbg's restoration single-step.
+    //   3. m_pending_cip == cip: a real CB_BREAKPOINT→CB_PAUSEDEBUG pair runs no
+    //      debuggee code in between so CIP is unchanged. A skipped (condition=false)
+    //      BP fires no CB_PAUSEDEBUG of its own — x64dbg resumes via unlock(WAITID_RUN)
+    //      without handleBreakCondition — so any later unrelated pause has run the
+    //      thread past the BP and lands at a different CIP, which this gate rejects.
+    //      Because m_pending_cip is refreshed on every CB_BREAKPOINT, a real pause
+    //      after N condition=false skips still matches the last refreshed snapshot.
     //
-    //   4. m_pending_thread_id matches AND m_pending_thread_cycles == current cycles:
-    //      the debuggee thread has not executed since CB_BREAKPOINT. Cycles
-    //      (QueryThreadCycleTime) has nanosecond-scale granularity and advances
-    //      only when the thread runs, so this reliably separates "real BP → pause
-    //      with thread suspended the entire time" from "skipped BP → thread ran
-    //      → later pause". Because both cip and cycles are refreshed on every
-    //      CB_BREAKPOINT, a real pause after N condition=false skips still
-    //      matches the last refreshed snapshot.
-    //
-    // Rejection reports the pause as "unknown". False positives (unrelated or
-    // nested pause misreported as breakpoint) are worse than false negatives,
-    // so we reject whenever any invariant fails.
+    // Rejection reports the pause as "unknown". An earlier thread-Cycles equality
+    // gate was removed because it demanded a byte-identical QueryThreadCycleTime
+    // reading across the CB_BREAKPOINT → CB_PAUSEDEBUG window — unreliable in
+    // practice, and it falsely demoted genuine hits to "unknown". The residual
+    // false-positive window (a manual/event pause landing at the exact cached BP
+    // CIP) is narrow and accepted in exchange for not misreporting real hits.
     BRIDGEBP m_pending_bp{};
     duint    m_pending_cip = 0;
-    DWORD    m_pending_thread_id = 0;
-    ULONG64  m_pending_thread_cycles = 0;
     bool     m_last_was_breakpoint = false;
     // Log text evaluated at CB_BREAKPOINT time, matching x64dbg's actual log
     // semantics: format before commandText runs, so commandText-induced state

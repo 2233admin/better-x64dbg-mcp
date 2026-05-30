@@ -56,34 +56,6 @@ void c_mcp_events::enqueue(nlohmann::json event) {
     m_queue_cv.notify_one();
 }
 
-// Snapshot of the current thread's Cycles counter — used to detect whether the
-// debuggee thread ran between CB_BREAKPOINT and CB_PAUSEDEBUG. Cycles comes from
-// QueryThreadCycleTime (Win7+), has nanosecond-scale granularity, and only
-// advances when the thread actually executes code. For a real CB_BREAKPOINT →
-// CB_PAUSEDEBUG pair, the thread is suspended the whole time and Cycles is
-// unchanged; for a skipped BP followed by a manual pause, Cycles advances.
-struct thread_cycle_snapshot {
-    DWORD   thread_id = 0;
-    ULONG64 cycles    = 0;
-    bool    valid     = false;
-};
-
-static thread_cycle_snapshot snapshot_current_thread_cycles() {
-    THREADLIST list = {};
-    DbgGetThreadList(&list);
-    thread_cycle_snapshot snap;
-    if (list.list && list.count > 0
-        && list.CurrentThread >= 0
-        && list.CurrentThread < list.count) {
-        const auto& t = list.list[list.CurrentThread];
-        snap.thread_id = t.BasicInfo.ThreadId;
-        snap.cycles    = t.Cycles;
-        snap.valid     = true;
-    }
-    if (list.list) BridgeFree(list.list);
-    return snap;
-}
-
 static const char* bp_type_name(BPXTYPE t) {
     switch (t) {
         case bp_normal:    return "software";
@@ -159,10 +131,10 @@ void c_mcp_events::on_breakpoint(PLUG_CB_BREAKPOINT* info) {
     // Refresh the pending cache on every CB_BREAKPOINT — so a run of
     // condition=false skips followed by a real pause leaves the cache
     // describing the most recent (actually-paused) hit. on_pause() uses
-    // CIP + thread-cycles equality to tell "the last cached hit is the
-    // one that produced this pause" from "the last cached hit was skipped
-    // and something else caused this pause". A skip-counter is not needed:
-    // both signals are refreshed per-hit and the validation still holds.
+    // CIP equality to tell "the last cached hit is the one that produced
+    // this pause" from "the last cached hit was skipped and something else
+    // caused this pause". A skip-counter is not needed: m_pending_cip is
+    // refreshed per-hit and the validation still holds.
     //
     // NOTE: we do NOT pre-evaluate breakCondition — commandText can rewrite
     // $breakpointcondition after this callback, and an eval error forces a
@@ -170,9 +142,6 @@ void c_mcp_events::on_breakpoint(PLUG_CB_BREAKPOINT* info) {
     m_pending_bp          = *info->breakpoint;
     m_pending_cip         = get_bridge().eval_expression("cip");
     m_pending_log_fields  = evaluate_bp_log_fields(*info->breakpoint);
-    auto snap             = snapshot_current_thread_cycles();
-    m_pending_thread_id     = snap.valid ? snap.thread_id : 0;
-    m_pending_thread_cycles = snap.valid ? snap.cycles    : 0;
     m_last_was_breakpoint = true;
 }
 
@@ -200,35 +169,35 @@ void c_mcp_events::on_pause(PLUG_CB_PAUSEDEBUG* /*info*/) {
     //  - the BP has no commandText: x64dbg runs commandText between
     //    CB_BREAKPOINT and the real CB_PAUSEDEBUG, and some commands (loadlib,
     //    pause, others) fire a nested CB_PAUSEDEBUG during their execution.
-    //    cip+cycles can prove the original thread didn't run past the BP, but
-    //    cannot prove this CB_PAUSEDEBUG is the BP's own pause rather than one
-    //    triggered inside the command. Rejecting commandText-bearing BPs
-    //    avoids misattributing those nested pauses; users still receive the
-    //    breakpoint-hit SSE notification from on_breakpoint().
-    //  - CIP is unchanged since that CB_BREAKPOINT
-    //  - debuggee thread did not execute between: same thread id AND Cycles
-    //    counter unchanged. Cycles (QueryThreadCycleTime) advances at
-    //    nanosecond scale whenever the thread runs, so this catches every
-    //    "skip → thread executed → something else paused" path, including
-    //    x64dbg's `pause` command which goes SuspendThread → SetBPX(CIP,
-    //    cbPauseBreakpoint) → ResumeThread and never fires CB_BREAKPOINT or
-    //    CB_CREATETHREAD. Because both cip and cycles are refreshed on every
-    //    CB_BREAKPOINT, a run of condition=false skips followed by a real
-    //    pause at the same BP still validates correctly.
+    //    CIP equality cannot prove this CB_PAUSEDEBUG is the BP's own pause
+    //    rather than one triggered inside the command, so reject commandText-
+    //    bearing BPs outright; users still receive the breakpoint-hit SSE
+    //    notification from on_breakpoint().
+    //  - CIP is unchanged since that CB_BREAKPOINT. A real CB_BREAKPOINT →
+    //    CB_PAUSEDEBUG pair runs no debuggee code in between, so CIP still
+    //    equals the cached hit address. A skipped (condition=false) BP fires
+    //    no CB_PAUSEDEBUG of its own — x64dbg resumes via unlock(WAITID_RUN)
+    //    without handleBreakCondition (debugger.cpp:1066-1068) — so any later
+    //    unrelated pause has run the thread past the BP and lands at a
+    //    different CIP, which this gate rejects. Because m_pending_cip is
+    //    refreshed on every CB_BREAKPOINT, a run of condition=false skips
+    //    followed by a real pause at the same BP still validates correctly.
+    //
+    // The former thread-Cycles equality gate was removed: it demanded a
+    // byte-identical QueryThreadCycleTime reading across the CB_BREAKPOINT →
+    // CB_PAUSEDEBUG window, which is not reliable in practice and falsely
+    // demoted genuine hits to "unknown". The residual false-positive window —
+    // a manual/event pause landing at the exact cached BP CIP — is narrow and
+    // accepted in exchange for correctly attributing every real breakpoint.
     //
     // No CIP-lookup fallback: looking up "is there an enabled BP at CIP" at
     // pause time cannot tell a real BP hit from a manual pause that happens to
     // land on a BP address.
-    auto now_snap = snapshot_current_thread_cycles();
-    bool thread_ran = !now_snap.valid
-                   || now_snap.thread_id != m_pending_thread_id
-                   || now_snap.cycles    != m_pending_thread_cycles;
     bool has_command_text = m_pending_bp.commandText[0] != '\0';
 
     bool use_pending = m_last_was_breakpoint
                     && !has_command_text
-                    && (m_pending_cip == cip)
-                    && !thread_ran;
+                    && (m_pending_cip == cip);
     m_last_was_breakpoint = false;
 
     if (use_pending) {

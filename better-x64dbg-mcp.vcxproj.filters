@@ -33,6 +33,12 @@
     <ClCompile Include="src\bridge\c_bridge_executor.cpp">
       <Filter>src\bridge</Filter>
     </ClCompile>
+    <ClCompile Include="src\bridge\c_log_capture.cpp">
+      <Filter>src\bridge</Filter>
+    </ClCompile>
+    <ClCompile Include="src\handlers\log_handler.cpp">
+      <Filter>src\handlers</Filter>
+    </ClCompile>
     <ClCompile Include="src\util\format_utils.cpp">
       <Filter>src\util</Filter>
     </ClCompile>
@@ -127,6 +133,12 @@
     </ClInclude>
     <ClInclude Include="src\bridge\c_bridge_executor.h">
       <Filter>src\bridge</Filter>
+    </ClInclude>
+    <ClInclude Include="src\bridge\c_log_capture.h">
+      <Filter>src\bridge</Filter>
+    </ClInclude>
+    <ClInclude Include="src\handlers\log_handler.h">
+      <Filter>src\handlers</Filter>
     </ClInclude>
     <ClInclude Include="src\util\format_utils.h">
       <Filter>src\util</Filter>

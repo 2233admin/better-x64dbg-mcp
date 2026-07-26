@@ -20,7 +20,7 @@ The original project uses a two-layer architecture — a TypeScript MCP server c
 ## Features
 
 - **MCP Streamable HTTP** (2025-03-26 spec) — single `/mcp` endpoint, `POST`/`GET`/`DELETE`
-- **21 mega-tools** covering debug control, registers, memory, breakpoints, disassembly, symbols, stack, threads, modules, search, tracing, dumping, exceptions, control flow, patches, annotations, memory map, process info, handles, analysis, and raw commands
+- **22 mega-tools** covering debug control, registers, memory, breakpoints, disassembly, symbols, stack, threads, modules, search, tracing, dumping, exceptions, control flow, patches, annotations, memory map, process info, handles, analysis, log capture, and raw commands
 - **Real-time event push** via SSE — 9 x64dbg callbacks (breakpoint hit, pause, exception, step complete, debug stop, process create/exit, DLL load/unload)
 - **Zero deployment friction** — drop the `.dp64` into x64dbg's `plugins/` folder
 
@@ -76,11 +76,37 @@ When the reason carries extra context, a sub-object keyed by the `reason` value 
 
 `reason` is attributed conservatively: it is reported as `breakpoint` only when a `CB_BREAKPOINT` fired, the breakpoint has no `commandText`, and CIP is unchanged since that callback. Pauses that cannot be positively attributed fall through to `unknown` rather than being mislabeled.
 
+## Reading the Log Window
+
+The x64dbg plugin SDK has no log callback, so the `x64dbg_log` tool captures the GUI log window on demand (`GuiFlushLog` + `GuiLogSave` to a temp file, diffed incrementally) and keeps the last 10,000 lines in a plugin-side ring buffer. This finally makes **logging breakpoints** usable from MCP.
+
+| Action | Purpose |
+|---|---|
+| `read` | Incremental read: pass the previous `next_cursor` (or 0 for oldest retained); page until `truncated` is `false` |
+| `tail` | Fresh capture, then the last N complete lines |
+| `write` | Emit a marker line into the log; the returned `[cursor_before, next_cursor)` range brackets it |
+| `clear` | Clear the GUI log and the retained buffer (cursors are not reset) |
+| `status` | Buffer stats, `log_enabled`, `doc_bytes` headroom |
+| `read_file` | Byte-offset paged read of a file — pair with the breakpoint `log_file` field below |
+
+Semantics worth knowing:
+
+- Cursors are monotonic line sequence numbers. `capture_epoch` changes when the plugin reloads — treat old cursors as stale when it does.
+- The GUI log document is purged wholesale by x64dbg when it exceeds ~1 MiB (checked every ~50 s). The plugin's ring buffer outlives the purge; a purge or manual clear surfaces as `log_cleared: true`, and lines never captured before a purge are gone (`dropped`/`dropped_count` report cursor gaps).
+- `partial` is the trailing line not yet terminated by a newline; it has no cursor and reappears as a normal line once completed.
+- High-frequency logging breakpoints should log to a file instead of the window: set `log_file` (absolute path) via `x64dbg_breakpoints` `configure`, then page it with `read_file` — this bypasses the log window and its 1 MiB purge entirely, and works while the debuggee is running.
+
+```json
+{ "action": "configure", "address": "0x7FFC09EBE1A0",
+  "log_text": "hit rcx={rcx}", "log_file": "C:\\temp\\bp.log",
+  "silent": true, "fast_resume": true }
+```
+
 ## Build Requirements
 
 - Visual Studio 2022+ with MSVC v145 toolset
 - Windows SDK 10.0
-- C++23 (x64) / C++20 (Win32)
+- C++23 (x64 and Win32)
 
 All dependencies are vendored: x64dbg Plugin SDK and nlohmann/json.
 

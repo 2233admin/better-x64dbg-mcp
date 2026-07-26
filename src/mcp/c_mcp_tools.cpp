@@ -21,6 +21,7 @@
 #include "handlers/process_handler.h"
 #include "handlers/handles_handler.h"
 #include "handlers/analysis_handler.h"
+#include "handlers/log_handler.h"
 
 using json = nlohmann::json;
 
@@ -272,6 +273,7 @@ json mcp_tools::build_tools_list() {
             {"singleshot", bool_field()}, {"hw_type", str_enum({"r","w","x"})}, {"hw_size", str_enum({"1","2","4","8"})},
             {"mem_type", str_enum({"a","r","w","x"})}, {"break_condition", str_field()}, {"command_condition", str_field()},
             {"command_text", str_field()}, {"log_text", str_field()}, {"log_condition", str_field()},
+            {"log_file", str_field("Absolute path for breakpoint hit logging; empty string disables")},
             {"silent", bool_field()}, {"fast_resume", bool_field()}, {"name", str_field()}}, {"address"}),
         make_action("configure_batch", {{"breakpoints", {{"type", "array"}, {"items", {{"type", "object"}}}}}}, {"breakpoints"})
     }));
@@ -445,6 +447,28 @@ json mcp_tools::build_tools_list() {
         make_action("file_to_va", {{"module", str_field()}, {"offset", str_field()}}, {"module", "offset"}),
         make_action("mnemonic_brief", {{"mnemonic", str_field()}}, {"mnemonic"}),
         make_action("find_strings", {{"module", str_field()}}, {"module"})
+    }));
+
+    // x64dbg_log
+    tools.push_back(make_mega_tool("x64dbg_log",
+        "Read the x64dbg GUI log window and breakpoint log files. Lines are buffered "
+        "plugin-side with monotonic cursors; page with read using next_cursor. "
+        "capture_epoch changes when the plugin reloads (old cursors are then stale).", {
+        make_action("read", {
+            {"cursor", int_field("Resume cursor from a previous next_cursor; 0 (default) = oldest retained line")},
+            {"max_lines", int_field("Max lines per page (default 200, max 5000); truncated:true means more pages remain")}}),
+        make_action("tail", {
+            {"max_lines", int_field("Last N complete lines after a fresh capture (default 50, max 5000)")}}),
+        make_action("clear"),
+        make_action("write", {
+            {"text", str_field("Text to emit into the x64dbg log window; response cursor range brackets it (sync marker)")}},
+            {"text"}),
+        make_action("status"),
+        make_action("read_file", {
+            {"path", str_field("Absolute path to a file, e.g. a breakpoint log_file target")},
+            {"offset", int_field("Byte offset to read from (default 0); pass next_offset to page")},
+            {"max_bytes", int_field("Max bytes per read (default 65536, max 1048576)")}},
+            {"path"})
     }));
 
     return tools;
@@ -650,6 +674,18 @@ json mcp_tools::dispatch_tool_call(const std::string& tool, const json& args) {
         if (action == "file_to_va")     return handlers::analysis::file_to_va(args["module"], args["offset"]);
         if (action == "mnemonic_brief") return handlers::analysis::mnemonic_brief(args["mnemonic"]);
         if (action == "find_strings")   return handlers::analysis::find_strings(args["module"]);
+    }
+    else if (tool == "x64dbg_log") {
+        if (action == "read")      return handlers::logging::read(
+                                       parse_int_field<unsigned long long>(args, "cursor", 0ULL),
+                                       parse_int_field<size_t>(args, "max_lines", 200));
+        if (action == "tail")      return handlers::logging::tail(parse_int_field<size_t>(args, "max_lines", 50));
+        if (action == "clear")     return handlers::logging::clear();
+        if (action == "write")     return handlers::logging::write(args["text"]);
+        if (action == "status")    return handlers::logging::status();
+        if (action == "read_file") return handlers::logging::read_file(args["path"],
+                                       parse_int_field<unsigned long long>(args, "offset", 0ULL),
+                                       parse_int_field<size_t>(args, "max_bytes", 65536));
     }
 
     throw std::runtime_error("Unknown tool '" + tool + "' or action '" + action + "'");

@@ -21,6 +21,7 @@
   <ItemGroup>
     <ClCompile Include="src\plugin_main.cpp" />
     <ClCompile Include="src\bridge\c_bridge_executor.cpp" />
+    <ClCompile Include="src\bridge\c_log_capture.cpp" />
     <ClCompile Include="src\util\format_utils.cpp" />
     <ClCompile Include="src\http\c_http_server.cpp" />
     <ClCompile Include="src\mcp\c_mcp_dispatcher.cpp" />
@@ -48,12 +49,14 @@
     <ClCompile Include="src\handlers\process_handler.cpp" />
     <ClCompile Include="src\handlers\handles_handler.cpp" />
     <ClCompile Include="src\handlers\analysis_handler.cpp" />
+    <ClCompile Include="src\handlers\log_handler.cpp" />
     <ClCompile Include="src\ui\about_dialog.cpp" />
     <ClCompile Include="src\ui\settings_dialog.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\plugin_main.h" />
     <ClInclude Include="src\bridge\c_bridge_executor.h" />
+    <ClInclude Include="src\bridge\c_log_capture.h" />
     <ClInclude Include="src\util\format_utils.h" />
     <ClInclude Include="src\http\c_http_server.h" />
     <ClInclude Include="src\mcp\c_mcp_dispatcher.h" />
@@ -81,6 +84,7 @@
     <ClInclude Include="src\handlers\process_handler.h" />
     <ClInclude Include="src\handlers\handles_handler.h" />
     <ClInclude Include="src\handlers\analysis_handler.h" />
+    <ClInclude Include="src\handlers\log_handler.h" />
     <ClInclude Include="src\ui\about_dialog.h" />
     <ClInclude Include="src\ui\settings_dialog.h" />
     <ClInclude Include="src\resources\plugin_icon.h" />

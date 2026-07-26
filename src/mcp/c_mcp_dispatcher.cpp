@@ -118,11 +118,13 @@ json c_mcp_dispatcher::handle_tools_call(const json& params, const json& id) {
 
     try {
         auto tool_result = mcp_tools::dispatch_tool_call(tool_name, arguments);
-        // MCP tools/call result format
+        // MCP tools/call result format. error_handler_t::replace: a tool result that
+        // carries externally-sourced bytes (memory, files, log text) must not turn
+        // into a type_error.316 throw — invalid UTF-8 becomes U+FFFD instead.
         json content = json::array();
         content.push_back({
             {"type", "text"},
-            {"text", tool_result.dump(2)}
+            {"text", tool_result.dump(2, ' ', false, json::error_handler_t::replace)}
         });
         return make_result(id, {{"content", content}});
     } catch (const std::exception& e) {

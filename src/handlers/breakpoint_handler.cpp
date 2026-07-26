@@ -21,6 +21,16 @@ static std::vector<std::string> apply_bp_config(c_bridge_executor& bridge, const
         try_cmd("log_text", "SetBreakpointLog " + addr_str + ", \"" + body["log_text"].get<std::string>() + "\"");
     if (body.contains("log_condition"))
         try_cmd("log_condition", "SetBreakpointLogCondition " + addr_str + ", \"" + body["log_condition"].get<std::string>() + "\"");
+    if (body.contains("log_file")) {
+        auto log_file = body["log_file"].get<std::string>();
+        // Quotes/newlines break the x64dbg command parser (no escaping mechanism);
+        // paths are the field most likely to hit this. Reported as a warning, not a
+        // throw, so a configure_batch entry cannot abort the remaining entries.
+        if (log_file.find('"') != std::string::npos || log_file.find('\n') != std::string::npos)
+            warnings.push_back("log_file rejected: path must not contain quotes or newlines");
+        else
+            try_cmd("log_file", "SetBreakpointLogFile " + addr_str + ", \"" + log_file + "\"");
+    }
     if (body.contains("silent"))
         try_cmd("silent", "SetBreakpointSilent " + addr_str + ", " + (body["silent"].get<bool>() ? "1" : "0"));
     if (body.contains("fast_resume"))

@@ -21,7 +21,6 @@
   <ItemGroup>
     <ClCompile Include="src\plugin_main.cpp" />
     <ClCompile Include="src\bridge\c_bridge_executor.cpp" />
-    <ClCompile Include="src\bridge\c_log_capture.cpp" />
     <ClCompile Include="src\util\format_utils.cpp" />
     <ClCompile Include="src\http\c_http_server.cpp" />
     <ClCompile Include="src\mcp\c_mcp_dispatcher.cpp" />
@@ -56,8 +55,8 @@
   <ItemGroup>
     <ClInclude Include="src\plugin_main.h" />
     <ClInclude Include="src\bridge\c_bridge_executor.h" />
-    <ClInclude Include="src\bridge\c_log_capture.h" />
     <ClInclude Include="src\util\format_utils.h" />
+    <ClInclude Include="src\util\path_utils.h" />
     <ClInclude Include="src\http\c_http_server.h" />
     <ClInclude Include="src\mcp\c_mcp_dispatcher.h" />
     <ClInclude Include="src\mcp\c_mcp_session.h" />

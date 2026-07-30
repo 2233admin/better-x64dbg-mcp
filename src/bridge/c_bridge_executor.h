@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 #include "_plugin_types.h"
+#include "_dbgfunctions.h"
 
 class c_bridge_executor {
 public:
@@ -29,10 +30,22 @@ public:
     [[nodiscard]] std::expected<std::vector<uint8_t>, std::string> read_memory(duint address, size_t size);
     [[nodiscard]] std::expected<void, std::string> write_memory(duint address, const std::vector<uint8_t>& data);
     [[nodiscard]] bool is_valid_read_ptr(duint address);
+    [[nodiscard]] std::expected<duint, std::string> get_memory_region_base(duint address);
 
     [[nodiscard]] std::expected<REGDUMP, std::string> get_register_dump();
     [[nodiscard]] std::expected<nlohmann::json, std::string> get_memory_map();
     [[nodiscard]] std::expected<nlohmann::json, std::string> get_breakpoint_list(BPXTYPE type);
+    [[nodiscard]] std::expected<void, std::string> require_breakpoint_configuration_api();
+    [[nodiscard]] std::expected<bool, std::string> breakpoint_exists(
+        BPXTYPE type, duint address);
+    [[nodiscard]] std::expected<void, std::string> set_breakpoint_text_field(
+        BPXTYPE type, duint address, BP_FIELD field, const std::string& value);
+    [[nodiscard]] std::expected<void, std::string> set_breakpoint_log_text(
+        BPXTYPE type, duint address, const std::string& value);
+    [[nodiscard]] std::expected<void, std::string> set_breakpoint_number_field(
+        BPXTYPE type, duint address, BP_FIELD field, duint value);
+    [[nodiscard]] std::expected<void, std::string> set_breakpoint_singleshoot(
+        BPXTYPE type, duint address, bool value);
     [[nodiscard]] std::expected<nlohmann::json, std::string> get_thread_list();
 
     [[nodiscard]] std::string get_label_at(duint address);

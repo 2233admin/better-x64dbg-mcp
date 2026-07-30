@@ -195,12 +195,12 @@ static json make_mega_tool(const std::string& name, const std::string& base_desc
                     d = incoming["description"].get<std::string>();
 
                 if (et == it2 && !et.empty()) {
-                    // Same base type — drop enum on conflict; per-action docs are authoritative
+                    // Same base type: drop enum on conflict; per-action docs are authoritative
                     existing.erase("enum");
                     if (!existing.contains("description") && !d.empty())
                         existing["description"] = d;
                 } else {
-                    // Different types — use string as common type (parse_int handles conversion)
+                    // Different types: use string as common type (parse_int handles conversion)
                     existing = {{"type", "string"}};
                     if (!d.empty()) existing["description"] = d;
                 }
@@ -270,7 +270,7 @@ json mcp_tools::build_tools_list() {
         make_action("get", {{"address", str_field()}}, {"address"}),
         make_action("list"),
         make_action("configure", {{"address", str_field()}, {"bp_type", str_enum({"software","hardware","memory"})},
-            {"singleshot", bool_field()}, {"hw_type", str_enum({"r","w","x"})}, {"hw_size", str_enum({"1","2","4","8"})},
+            {"singleshot", bool_field("One-shot breakpoint (default false)")}, {"hw_type", str_enum({"r","w","x"})}, {"hw_size", str_enum({"1","2","4","8"})},
             {"mem_type", str_enum({"a","r","w","x"})}, {"break_condition", str_field()}, {"command_condition", str_field()},
             {"command_text", str_field()}, {"log_text", str_field()}, {"log_condition", str_field()},
             {"log_file", str_field("Absolute path for breakpoint hit logging; empty string disables")},
@@ -451,23 +451,17 @@ json mcp_tools::build_tools_list() {
 
     // x64dbg_log
     tools.push_back(make_mega_tool("x64dbg_log",
-        "Read the x64dbg GUI log window and breakpoint log files. Lines are buffered "
-        "plugin-side with monotonic cursors; page with read using next_cursor. "
-        "capture_epoch changes when the plugin reloads (old cursors are then stale).", {
+        "Read UTF-8 log files while x64dbg is appending to them. Configure a breakpoint "
+        "log_file, then page with the returned next_offset, file_id, and continuity_token. "
+        "The bounded cursor state follows x64dbg's append-only writer without rescanning "
+        "the consumed prefix. Replacement, visible truncation, or a boundary mismatch "
+        "resets to offset 0 with reset:true.", {
         make_action("read", {
-            {"cursor", int_field("Resume cursor from a previous next_cursor; 0 (default) = oldest retained line")},
-            {"max_lines", int_field("Max lines per page (default 200, max 5000); truncated:true means more pages remain")}}),
-        make_action("tail", {
-            {"max_lines", int_field("Last N complete lines after a fresh capture (default 50, max 5000)")}}),
-        make_action("clear"),
-        make_action("write", {
-            {"text", str_field("Text to emit into the x64dbg log window; response cursor range brackets it (sync marker)")}},
-            {"text"}),
-        make_action("status"),
-        make_action("read_file", {
-            {"path", str_field("Absolute path to a file, e.g. a breakpoint log_file target")},
+            {"path", str_field("Absolute path to a breakpoint log file")},
             {"offset", int_field("Byte offset to read from (default 0); pass next_offset to page")},
-            {"max_bytes", int_field("Max bytes per read (default 65536, max 1048576)")}},
+            {"max_bytes", int_field("Soft byte cap (default 65536, max 1048576); up to 3 extra bytes may complete a UTF-8 code point")},
+            {"file_id", str_field("file_id from the previous page; required when offset is non-zero")},
+            {"continuity_token", str_field("Opaque continuity_token from the previous page; required when offset is non-zero; cache expiry resets the cursor")}},
             {"path"})
     }));
 
@@ -676,16 +670,14 @@ json mcp_tools::dispatch_tool_call(const std::string& tool, const json& args) {
         if (action == "find_strings")   return handlers::analysis::find_strings(args["module"]);
     }
     else if (tool == "x64dbg_log") {
-        if (action == "read")      return handlers::logging::read(
-                                       parse_int_field<unsigned long long>(args, "cursor", 0ULL),
-                                       parse_int_field<size_t>(args, "max_lines", 200));
-        if (action == "tail")      return handlers::logging::tail(parse_int_field<size_t>(args, "max_lines", 50));
-        if (action == "clear")     return handlers::logging::clear();
-        if (action == "write")     return handlers::logging::write(args["text"]);
-        if (action == "status")    return handlers::logging::status();
-        if (action == "read_file") return handlers::logging::read_file(args["path"],
-                                       parse_int_field<unsigned long long>(args, "offset", 0ULL),
-                                       parse_int_field<size_t>(args, "max_bytes", 65536));
+        if (action == "read") return handlers::logging::read(
+            args["path"],
+            parse_int_field<unsigned long long>(args, "offset", 0ULL),
+            parse_int_field<size_t>(args, "max_bytes", 65536),
+            args.contains("file_id") ? args["file_id"].get<std::string>() : std::string{},
+            args.contains("continuity_token")
+                ? args["continuity_token"].get<std::string>()
+                : std::string{});
     }
 
     throw std::runtime_error("Unknown tool '" + tool + "' or action '" + action + "'");

@@ -8,7 +8,6 @@
 #include "ui/settings_dialog.h"
 #include "ui/about_dialog.h"
 #include "handlers/debug_handler.h"
-#include "bridge/c_log_capture.h"
 
 // Globals
 static int g_plugin_handle = -1;
@@ -132,7 +131,6 @@ PLUG_EXPORT bool pluginit(PLUG_INITSTRUCT* init_struct) {
 PLUG_EXPORT bool plugstop() {
     _plugin_unregistercommand(g_plugin_handle, "mcpserver");
     stop_server();
-    get_log_capture().shutdown();  // after stop_server(): no HTTP workers hold captures
     _plugin_logputs("[MCP] Plugin stopped");
     return true;
 }

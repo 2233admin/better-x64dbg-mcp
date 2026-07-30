@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <string_view>
 #include <cstdint>
 #include <vector>
 #include <sstream>
@@ -111,49 +110,6 @@ namespace format_utils {
             case MEM_FREE:    return "MEM_FREE";
             default:          return "UNKNOWN";
         }
-    }
-
-    // Validate UTF-8, replacing each invalid byte with U+FFFD. Required before placing
-    // externally-sourced bytes into nlohmann::json — json::dump() throws type_error.316
-    // on invalid UTF-8. Rejects bad continuation bytes, overlong encodings, UTF-16
-    // surrogates (U+D800-DFFF) and code points above U+10FFFF.
-    [[nodiscard]] inline std::string to_utf8_safe(std::string_view in) {
-        static constexpr const char* replacement = "\xEF\xBF\xBD"; // U+FFFD
-        std::string out;
-        out.reserve(in.size());
-        size_t i = 0;
-        while (i < in.size()) {
-            const auto b0 = static_cast<unsigned char>(in[i]);
-            size_t len;
-            uint32_t cp;
-            if (b0 < 0x80) { out += static_cast<char>(b0); ++i; continue; }
-            else if ((b0 & 0xE0) == 0xC0) { len = 2; cp = b0 & 0x1F; }
-            else if ((b0 & 0xF0) == 0xE0) { len = 3; cp = b0 & 0x0F; }
-            else if ((b0 & 0xF8) == 0xF0) { len = 4; cp = b0 & 0x07; }
-            else { out += replacement; ++i; continue; }
-
-            if (i + len > in.size()) { out += replacement; ++i; continue; }
-            bool valid = true;
-            for (size_t k = 1; k < len; ++k) {
-                const auto bk = static_cast<unsigned char>(in[i + k]);
-                if ((bk & 0xC0) != 0x80) { valid = false; break; }
-                cp = (cp << 6) | (bk & 0x3F);
-            }
-            // Overlong encodings, surrogates, out-of-range code points
-            if (valid) {
-                if (len == 2 && cp < 0x80) valid = false;
-                else if (len == 3 && (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))) valid = false;
-                else if (len == 4 && (cp < 0x10000 || cp > 0x10FFFF)) valid = false;
-            }
-            if (valid) {
-                out.append(in.substr(i, len));
-                i += len;
-            } else {
-                out += replacement;
-                ++i;
-            }
-        }
-        return out;
     }
 
     [[nodiscard]] inline std::string format_mem_type(DWORD type) {

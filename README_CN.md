@@ -76,30 +76,27 @@
 
 `reason` 采用保守归因：只有当 `CB_BREAKPOINT` 已触发、断点无 `commandText`、且自该回调以来 CIP 未变化时，才会报告为 `breakpoint`。无法明确归因的暂停会退为 `unknown`，而不是被错误标注。
 
-## 读取日志窗口
+## 读取断点日志
 
-x64dbg 插件 SDK 没有日志回调，因此 `x64dbg_log` 工具按需捕获 GUI 日志窗口（`GuiFlushLog` + `GuiLogSave` 落到临时文件后增量 diff），并在插件侧维护最近 10,000 行的环形缓冲。**日志断点**从此可以在 MCP 工作流中使用。
+x64dbg 插件 SDK 没有日志回调，而且 GUI 的保存操作会反过来修改被保存的日志。因此本插件不抓取 GUI 日志窗口。日志断点直接写文件，`x64dbg_log read` 在不暂停被调试进程的情况下分页读取这些文件。
 
-| 动作 | 用途 |
-|---|---|
-| `read` | 增量读取：传入上次的 `next_cursor`（0 = 最旧保留行）；`truncated` 为 `false` 前持续翻页 |
-| `tail` | 先捕获一次，再返回最后 N 个完整行 |
-| `write` | 向日志窗口写入一条标记行；返回的 `[cursor_before, next_cursor)` 区间恰好包住它 |
-| `clear` | 清空 GUI 日志与插件缓冲（cursor 不重置） |
-| `status` | 缓冲统计、`log_enabled`、`doc_bytes` 余量 |
-| `read_file` | 按字节偏移分页读文件 — 与下方断点 `log_file` 字段配合使用 |
+读取模型刻意保持简单：
 
-需要了解的语义：
-
-- Cursor 是单调递增的行序号。插件重载后 `capture_epoch` 会变化——此时旧 cursor 视为失效。
-- GUI 日志 document 超过约 1 MiB 时会被 x64dbg **整体清空**（约每 50 秒检查一次）。插件环形缓冲不受影响；purge 或手动清空表现为 `log_cleared: true`，purge 前从未捕获过的行将永久丢失（cursor 缺口由 `dropped`/`dropped_count` 报告）。
-- `partial` 是尚未以换行结束的末尾行；它没有 cursor，补完后会以正常行再次出现。
-- 高频日志断点建议写文件而不是写窗口：通过 `x64dbg_breakpoints` `configure` 设置 `log_file`（绝对路径），再用 `read_file` 分页读取——完全绕开日志窗口及其 1 MiB 清空机制，且被调试进程运行中即可读取。
+- 为软件、硬件或内存断点配置绝对路径 `log_file`；空路径表示关闭文件日志。
+- 第一次从 `offset: 0` 开始；后续每一页都要回传上次返回的 `next_offset`、`file_id` 和 `continuity_token`。偏移非零时两个 token 都是必填项。
+- 读取器针对 x64dbg 的只追加断点日志写入方式设计。`file_id` 检测文件替换；不透明的 `continuity_token` 指向一个有界的服务端游标，检查已观察到的文件大小和分页边界前 64 字节，不会重扫已经消费的前缀。发生替换、可见截断或边界不匹配时，会从字节 0 重新开始并返回 `reset: true` 与 `reset_reason`；插件重载或游标缓存淘汰会返回 `continuity_state_expired`。
+- `max_bytes` 是软上限；为了不把合法 UTF-8 字符切成两页，单页最多会多读 3 字节。无效 UTF-8 会明确报错，不做静默替换。
+- 读取器共享读/写访问，因此 x64dbg 持续追加断点命中记录时仍可读取。
 
 ```json
 { "action": "configure", "address": "0x7FFC09EBE1A0",
   "log_text": "hit rcx={rcx}", "log_file": "C:\\temp\\bp.log",
   "silent": true, "fast_resume": true }
+```
+
+```json
+{ "action": "read", "path": "C:\\temp\\bp.log",
+  "offset": 0, "max_bytes": 65536 }
 ```
 
 ## 构建要求
